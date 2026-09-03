@@ -1,0 +1,41 @@
+# Konfiguration for aktieanalysbotten.
+# Alla varden lases av config.py. Ingen modul far hardkoda nagot som star har.
+
+# Maximal tillaten alder pa senaste datapunkten, i minuter.
+# Overskrids den avbryts analysen. Ingen tyst fallback.
+MAX_LATENS_MINUTER: 20
+
+# Prediktionshorisonter, uttryckta i handelsdagar (barer).
+HORISONTER: [5, 20]
+
+BEVAKNINGSLISTA:
+  - NVDA
+  - AMD
+  - ERIC-B.ST
+  - ATCO-A.ST
+  - INVE-B.ST
+
+DATAKALLA: yfinance
+
+# --- Nedanstaende nycklar ar inte specificerade i uppdraget men kravs av koden. ---
+
+# Referensindex for buy-and-hold-benchmarken i evaluate.py (krav 4).
+BENCHMARK_INDEX: "^GSPC"
+
+# Barupplosning som hamtas for analys. Latenskravet pa 20 minuter forutsatter
+# intradagsdata; dagsbarer kan aldrig passera farskhetskontrollen under stangd bors.
+INTERVALL: "5m"
+
+# Hur langt bakat basraten raknas.
+BASRAT_AR: 2
+
+# Minsta antal utvarderade prediktioner innan resultatet far tolkas (krav 6).
+MIN_ANTAL_FOR_SLUTSATS: 100
+
+# Latensintervall for uppdelad traffsakerhet (krav 7), i minuter.
+LATENSINTERVALL: [[0, 5], [5, 15], [15, 20]]
+
+# Konfidensintervall for kalibreringsrapporten (krav 1), i procent.
+KONFIDENSINTERVALL: [[50, 60], [60, 70], [70, 85]]
+
+PREDIKTIONSFIL: "predictions.csv"
