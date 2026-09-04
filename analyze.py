@@ -10,6 +10,10 @@ Ordningen ar inte forhandlingsbar:
 
 Anvandning:
     python analyze.py --ticker NVDA --horisont 5
+    python analyze.py --alla --horisont 5
+
+Med --alla kors hela BEVAKNINGSLISTA. En ticker som avbryts stoppar inte de
+ovriga -- stangd bors for en aktie sager ingenting om nasta.
 """
 
 from __future__ import annotations
@@ -19,6 +23,7 @@ import json
 import math
 import sys
 import uuid
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
 import pandas as pd
@@ -259,9 +264,104 @@ def formatera_block(resultat: dict) -> str:
     return "\n".join(rader)
 
 
+# --------------------------------------------------------------------------
+# Batchkorning over bevakningslistan
+# --------------------------------------------------------------------------
+
+#: Exitkoder. 3 skiljs fran 2 sa att cron kan ignorera "borsen ar stangd"
+#: men fortfarande larma pa riktiga fel.
+EXIT_OK = 0
+EXIT_AVBRUTEN = 2
+EXIT_ALLA_AVBRUTNA = 3
+
+
+@dataclass
+class Korning:
+    """Utfallet for en ticker i en batchkorning."""
+
+    ticker: str
+    resultat: dict | None = None
+    avbrottsorsak: str | None = None
+    ovantat: bool = False
+
+    @property
+    def lyckades(self) -> bool:
+        return self.resultat is not None
+
+
+def kor_alla(
+    tickers: list[str], horisont: int, *, skriv: bool = True
+) -> list[Korning]:
+    """Analyserar varje ticker for sig. Ett avbrott avbryter bara den tickern.
+
+    Ovantade fel fangas ocksa, men markeras separat sa att de inte gar att
+    forvaxla med en normal avbruten farskhetskontroll. De ar buggar, inte
+    stangda borser, och ska synas som buggar.
+    """
+    korningar: list[Korning] = []
+    for ticker in tickers:
+        try:
+            korningar.append(Korning(ticker, resultat=analysera(ticker, horisont, skriv=skriv)))
+        except (AnalysAvbruten, DataFel, ind.IndikatorFel) as fel:
+            korningar.append(Korning(ticker, avbrottsorsak=str(fel)))
+        except Exception as fel:  # noqa: BLE001 -- en trasig ticker far inte doda resten
+            korningar.append(
+                Korning(
+                    ticker,
+                    avbrottsorsak=f"OVANTAT FEL: {type(fel).__name__}: {fel}",
+                    ovantat=True,
+                )
+            )
+    return korningar
+
+
+def formatera_sammanfattning(korningar: list[Korning], horisont: int) -> str:
+    """Kort tabell over vad som gick igenom och vad som inte gjorde det."""
+    lyckade = [k for k in korningar if k.lyckades]
+    buggar = [k for k in korningar if k.ovantat]
+
+    rader = [
+        "=" * _BREDD,
+        f"SAMMANFATTNING  |  horisont {horisont} handelsdagar  |  "
+        f"{len(lyckade)}/{len(korningar)} igenom",
+        "=" * _BREDD,
+    ]
+
+    for korning in korningar:
+        if korning.lyckades:
+            rad = korning.resultat["rad"]
+            rader.append(
+                f"  {'OK':<9} {korning.ticker:<12} {rad['riktning']:<4} "
+                f"{rad['konfidens'] * 100:>5.1f} %  "
+                f"basrat {rad['basrat_for_riktning'] * 100:>5.1f} %  "
+                f"latens {rad['latens_minuter']:>5.1f} min"
+            )
+        else:
+            markering = "BUGG" if korning.ovantat else "AVBRUTEN"
+            rader.append(f"  {markering:<9} {korning.ticker:<12} {korning.avbrottsorsak}")
+
+    rader.append("=" * _BREDD)
+    if not lyckade:
+        rader.append(
+            "Ingen prediktion loggad. Utanfor borstid ar det vantat, inte ett fel."
+        )
+    if buggar:
+        rader.append(
+            f"VARNING: {len(buggar)} ticker(s) foll pa ovantade fel. Det ar buggar "
+            "i koden, inte stangda borser."
+        )
+    return "\n".join(rader)
+
+
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Analysera en ticker pa en horisont.")
-    parser.add_argument("--ticker", required=True, help="t.ex. NVDA eller ERIC-B.ST")
+    parser = argparse.ArgumentParser(description="Analysera en eller flera tickers.")
+    mal = parser.add_mutually_exclusive_group(required=True)
+    mal.add_argument("--ticker", help="t.ex. NVDA eller ERIC-B.ST")
+    mal.add_argument(
+        "--alla",
+        action="store_true",
+        help="kor hela BEVAKNINGSLISTA ur config.yaml",
+    )
     parser.add_argument(
         "--horisont",
         required=True,
@@ -275,16 +375,34 @@ def main(argv: list[str] | None = None) -> int:
         help="skriv inte nagon rad till predictions.csv",
     )
     args = parser.parse_args(argv)
+    skriv = not args.torrkorning
+
+    if args.alla:
+        tickers = list(CONFIG["BEVAKNINGSLISTA"])
+        if not tickers:
+            print("BEVAKNINGSLISTA i config.yaml ar tom.", file=sys.stderr)
+            return EXIT_AVBRUTEN
+
+        korningar = kor_alla(tickers, args.horisont, skriv=skriv)
+        for korning in korningar:
+            if korning.lyckades:
+                print(formatera_block(korning.resultat))
+                print()
+        print(formatera_sammanfattning(korningar, args.horisont))
+
+        if any(k.ovantat for k in korningar):
+            return EXIT_AVBRUTEN
+        return EXIT_OK if any(k.lyckades for k in korningar) else EXIT_ALLA_AVBRUTNA
 
     try:
-        resultat = analysera(args.ticker, args.horisont, skriv=not args.torrkorning)
+        resultat = analysera(args.ticker, args.horisont, skriv=skriv)
     except (AnalysAvbruten, DataFel, ind.IndikatorFel) as fel:
         print(str(fel), file=sys.stderr)
         print("Ingen prediktion loggad.", file=sys.stderr)
-        return 2
+        return EXIT_AVBRUTEN
 
     print(formatera_block(resultat))
-    return 0
+    return EXIT_OK
 
 
 if __name__ == "__main__":

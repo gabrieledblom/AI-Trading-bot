@@ -27,11 +27,23 @@ pip install -r requirements.txt
 python -m pytest tests -q
 
 python analyze.py --ticker NVDA --horisont 5
-python analyze.py --ticker ERIC-B.ST --horisont 20 --torrkorning
+python analyze.py --alla --horisont 5              # hela BEVAKNINGSLISTA
+python analyze.py --alla --horisont 20 --torrkorning
 
 python evaluate.py                 # fyll i mogna utfall och rapportera
 python evaluate.py --bara-rapport  # rapportera utan att hamta ny data
 ```
+
+### Exitkoder
+
+| Kod | Betydelse |
+|---|---|
+| 0 | Minst en prediktion loggad. |
+| 2 | Enskild ticker avbruten, eller ovantat fel under `--alla`. |
+| 3 | `--alla`: allt avbrots. Normalt utanfor borstid -- kan ignoreras i cron. |
+
+Med `--alla` stoppar ett avbrott bara den tickern. Stangd bors i Stockholm
+sager ingenting om Nasdaq, sa resten av listan kors anda.
 
 ## Regler som inte far brytas
 
@@ -44,6 +56,23 @@ python evaluate.py --bara-rapport  # rapportera utan att hamta ny data
    riktning. Utvarderingen mater mot den, aldrig mot 50 procent.
 4. **Under 100 utvarderade prediktioner ar resultatet brus** och rapporten
    sager det rakt ut.
+5. **Ovantade fel maskeras inte som avbrott.** `--alla` fangar dem sa att
+   listan kan koras klart, men markerar dem `BUGG` med varning i
+   sammanfattningen. En bugg ar inte en stangd bors.
+
+## Om BZ=F (Brent)
+
+Brent ligger i bevakningslistan som ravarureferens, men skiljer sig fran
+aktierna pa tre satt som paverkar tolkningen:
+
+- Serien ar ett *kontinuerligt* framre terminskontrakt. Vid varje rollover
+  hoppar priset av kontraktstekniska skal. `basrat()` raknar de hoppen som
+  riktig avkastning, sa basraten for BZ=F ar nagot forstord.
+- Terminer handlas nastan dygnet runt. Brent passerar darfor
+  farskhetskontrollen nastan alltid, medan aktierna gor det bara under
+  borstid. Vid schemalagd korning blir predictions.csv oljetung.
+- BZ=F gar inte att kopa i en vanlig depa. Certifikat och ETF:er som foljer
+  olja drabbas av contango och foljer inte spotpriset over tid.
 
 ## Oklarheter
 
