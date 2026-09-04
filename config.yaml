@@ -8,12 +8,20 @@ MAX_LATENS_MINUTER: 20
 # Prediktionshorisonter, uttryckta i handelsdagar (barer).
 HORISONTER: [5, 20]
 
+# Tickers i yfinance-format. Svenska aktier har suffixet .ST, terminer =F.
 BEVAKNINGSLISTA:
+  # USA
   - NVDA
   - AMD
+  - INTC
+  - RGTI
+  # Sverige
   - ERIC-B.ST
-  - ATCO-A.ST
+  - ATCO-B.ST
   - INVE-B.ST
+  # Ravara. Brent ar Europas referenspris pa olja.
+  # Handlas nastan dygnet runt, till skillnad fran aktierna ovan.
+  - "BZ=F"
 
 DATAKALLA: yfinance
 
